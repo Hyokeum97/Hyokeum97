@@ -73,6 +73,11 @@ body {
 .offers li { background: rgba(0,0,0,.35); border: 1px solid rgba(240,192,79,.4); border-radius: 4px; padding: 4px 9px; font-size: 17px; font-variant-numeric: tabular-nums; }
 .offers li span { opacity: .65; font-size: 14px; }
 .offers li.swap { background: var(--gold); color: #1a1205; }
+.voice { width: 100%; max-width: 400px; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.voice label { font-size: 15px; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); width: 100%; }
+.voice select { flex: 1; min-width: 0; font: 600 16px var(--f-key); padding: 8px; background: #2a0a0d; color: var(--ink); border: 1px solid rgba(240,192,79,.4); border-radius: 4px; }
+.voice button { font: 700 16px var(--f-key); padding: 8px 16px; background: var(--gold); color: #1a1205; border: 0; border-radius: 4px; cursor: pointer; }
+.voice button:focus-visible, .voice select:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 .help { max-width: 400px; margin: 0; font: 600 16px/1.4 var(--f-key); opacity: .85; }
 </style>
 
@@ -84,7 +89,8 @@ body {
   </div>
 </div>
 <section class="offers"><h2>Banker's offers</h2><ol id="history"><li><span>No offers yet</span></li></ol></section>
-<p class="help">Tap each amount as its box is opened. Press ✓ to call the Banker, who reads the offer out loud. With 2 boxes left the Banker also offers a swap: you can take the money, swap your box for the last unopened one, or play on. Press ✗ twice to start a new game.</p>
+<div class="voice" id="voiceRow"><label for="voiceSel">Banker's voice</label><select id="voiceSel"><option>Default voice</option></select><button id="voiceTest" type="button">Test</button></div>
+<p class="help">Tap each amount as its box is opened. Press ✓ to call the Banker, who reads the offer out loud. With 2 boxes left the Banker also offers a swap: you can take the money, swap your box for the last unopened one, or play on. Press ✗ twice to start a new game. Pick the Banker's voice that sounds most natural on your phone; Test plays a sample offer.</p>
 
 <script>
 // Amounts in pence, laid out exactly like the phone's keypad
@@ -199,19 +205,19 @@ function ring() { // old bell phone: hammer hits a bell 25 times a second, "trin
 }
 
 const LINES = [
-  a => `The Banker has made you an offer. ${a}. Deal, or no deal?`,
-  a => `The Banker has been watching very closely, and is offering you ${a}. Deal, or no deal?`,
-  a => `Right. The Banker says ${a}, and not a penny more. Deal, or no deal?`,
+  a => `Right then. The Banker has made you an offer... ${a}. So... deal, or no deal?`,
+  a => `The Banker's been watching you very closely... and is offering you ${a}. Deal, or no deal?`,
+  a => `Well... the Banker says ${a}. Not a penny more. Deal, or no deal?`,
 ];
 function say(h) { // the Banker's voice, via the browser's built-in speech
   if (h.offer == null) return;
   try {
     const a = h.offer < 100 ? h.offer + ' pence' : (h.offer / 100).toLocaleString('en-GB') + ' pounds';
     const u = new SpeechSynthesisUtterance(h.swap
-      ? `The Banker is offering you ${a}, or you can swap your box. Deal, swap, or no deal?`
+      ? `The Banker is offering you ${a}... or, you can swap your box. So... deal, swap, or no deal?`
       : LINES[Math.floor(Math.random() * LINES.length)](a));
-    u.lang = 'en-GB'; u.rate = .95; u.pitch = .8;
-    u.voice = speechSynthesis.getVoices().find(v => v.lang === 'en-GB') || null;
+    u.voice = voices.find(v => v.name === $('voiceSel').value) || null;
+    u.lang = u.voice ? u.voice.lang : 'en-GB'; u.rate = .92; u.pitch = 1;
     speechSynthesis.speak(u); // no cancel() first: Chrome and iPhone can silently drop a speak() right after it
   } catch {}
 }
@@ -219,6 +225,26 @@ function say(h) { // the Banker's voice, via the browser's built-in speech
 function unlockSpeech() {
   try { const u = new SpeechSynthesisUtterance('Banker'); u.volume = 0; speechSynthesis.speak(u); } catch {}
 }
+
+// Voice picker: English voices only, the most natural-sounding ones first
+let voices = [];
+const voiceScore = v => (/en[-_]GB/i.test(v.lang) ? 4 : 0) + (/natural|neural|premium|enhanced|online|google/i.test(v.name) ? 2 : 0) + (v.localService ? 0 : 1);
+function loadVoices() {
+  try {
+    voices = speechSynthesis.getVoices().filter(v => /^en/i.test(v.lang)).sort((a, b) => voiceScore(b) - voiceScore(a));
+    if (!voices.length) return;
+    let saved; try { saved = localStorage.getItem('dond-voice'); } catch {}
+    $('voiceSel').replaceChildren(...voices.map(v => new Option(`${v.name} (${v.lang})`, v.name)));
+    if (voices.some(v => v.name === saved)) $('voiceSel').value = saved;
+  } catch {}
+}
+if ('speechSynthesis' in window) {
+  loadVoices();
+  speechSynthesis.onvoiceschanged = loadVoices;
+  const test = () => say({ offer: 1250000 });
+  $('voiceSel').onchange = () => { try { localStorage.setItem('dond-voice', $('voiceSel').value); } catch {} test(); };
+  $('voiceTest').onclick = test;
+} else $('voiceRow').hidden = true;
 const pickup = () => tone([160, 90], [[0, .06]], .35);                       // handset lifted
 
 // Keep the screen awake during the game where the browser allows it
