@@ -143,7 +143,7 @@ function toggle([label, v], b) {
 
 function callBanker() {
   if (busy) return;
-  beep();
+  beep(); unlockSpeech();
   const rem = left();
   if (rem.length === TOTAL) return show('Open a box first', '22 left');
   if (rem.length < 2) return show('No more offers', 'Open box!');
@@ -212,8 +212,12 @@ function say(h) { // the Banker's voice, via the browser's built-in speech
       : LINES[Math.floor(Math.random() * LINES.length)](a));
     u.lang = 'en-GB'; u.rate = .95; u.pitch = .8;
     u.voice = speechSynthesis.getVoices().find(v => v.lang === 'en-GB') || null;
-    speechSynthesis.cancel(); speechSynthesis.speak(u);
+    speechSynthesis.speak(u); // no cancel() first: Chrome and iPhone can silently drop a speak() right after it
   } catch {}
+}
+// Phones only let a page talk if speech started during a tap, so ✓ speaks a silent word straight away
+function unlockSpeech() {
+  try { const u = new SpeechSynthesisUtterance('Banker'); u.volume = 0; speechSynthesis.speak(u); } catch {}
 }
 const pickup = () => tone([160, 90], [[0, .06]], .35);                       // handset lifted
 
@@ -221,7 +225,7 @@ const pickup = () => tone([160, 90], [[0, .06]], .35);                       // 
 // and unlock speech on iPhone, which only allows it after a tap
 document.addEventListener('pointerdown', () => {
   navigator.wakeLock?.request('screen').catch(() => {});
-  try { speechSynthesis.speak(new SpeechSynthesisUtterance('')); } catch {}
+  unlockSpeech();
 }, { once: true });
 
 renderHistory();
