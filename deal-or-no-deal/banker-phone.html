@@ -72,6 +72,7 @@ body {
 .offers ol { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
 .offers li { background: rgba(0,0,0,.35); border: 1px solid rgba(240,192,79,.4); border-radius: 4px; padding: 4px 9px; font-size: 17px; font-variant-numeric: tabular-nums; }
 .offers li span { opacity: .65; font-size: 14px; }
+.offers li.swap { background: var(--gold); color: #1a1205; }
 .help { max-width: 400px; margin: 0; font: 600 16px/1.4 var(--f-key); opacity: .85; }
 </style>
 
@@ -83,7 +84,7 @@ body {
   </div>
 </div>
 <section class="offers"><h2>Banker's offers</h2><ol id="history"><li><span>No offers yet</span></li></ol></section>
-<p class="help">Tap each amount as its box is opened. Press ✓ to call the Banker. Press ✗ twice to start a new game.</p>
+<p class="help">Tap each amount as its box is opened. Press ✓ to call the Banker. Sometimes the Banker offers a swap instead of money: say Deal to swap your box for any unopened one. Press ✗ twice to start a new game.</p>
 
 <script>
 // Amounts in pence, laid out exactly like the phone's keypad
@@ -95,6 +96,8 @@ const TOTAL = 22;
 // ponytail: calibration knobs. START = share of the average offered after 5 boxes, END = with 2 boxes left.
 // Raise END for a generous banker; JITTER 0 makes the offer purely formula-based.
 const START = 0.15, END = 0.9, JITTER = 0.08;
+// Chance that a call is a swap offer instead of money (max once per game, 3–17 boxes left)
+const SWAP_CHANCE = 0.2;
 function bankerOffer(remaining, rand = Math.random) {
   const n = remaining.length;
   if (n < 2) return null;
@@ -106,6 +109,8 @@ function bankerOffer(remaining, rand = Math.random) {
   return Math.max(1, Math.round(x / step) * step);
 }
 const fmt = p => p < 100 ? p + 'p' : '£' + (p / 100).toLocaleString('en-GB');
+const label = h => h.swap ? 'Swap' : fmt(h.offer);
+const showOffer = h => show(h.swap ? 'Swap your box?' : 'Banker offers', label(h));
 
 let opened = new Set(), history = [], resetArmed = 0, busy = false;
 try { const s = JSON.parse(localStorage.getItem('dond-phone')); opened = new Set(s.opened); history = s.history || []; } catch {}
@@ -142,13 +147,14 @@ function callBanker() {
   if (rem.length < 2) return show('No more offers', 'Open box!');
   const sig = [...opened].sort((a, b) => a - b).join();
   const last = history[history.length - 1];
-  if (last && last.sig === sig) return show('Banker offers', fmt(last.offer));
+  if (last && last.sig === sig) return showOffer(last);
   busy = true; $('phone').classList.add('ringing'); show('Banker calling…', '☎ ☎ ☎'); ring();
   setTimeout(() => {
-    const offer = bankerOffer(rem);
-    history.push({ sig, n: rem.length, offer }); save(); renderHistory();
+    const swap = rem.length >= 3 && rem.length <= 17 && !history.some(h => h.swap) && Math.random() < SWAP_CHANCE;
+    const h = swap ? { sig, n: rem.length, swap } : { sig, n: rem.length, offer: bankerOffer(rem) };
+    history.push(h); save(); renderHistory();
     $('phone').classList.remove('ringing'); busy = false;
-    show('Banker offers', fmt(offer));
+    showOffer(h);
   }, 1500);
 }
 
@@ -162,7 +168,7 @@ function reset() {
 
 function renderHistory() {
   $('history').innerHTML = history.length
-    ? history.map(h => `<li>${fmt(h.offer)} <span>· ${h.n} left</span></li>`).join('')
+    ? history.map(h => `<li${h.swap ? ' class="swap"' : ''}>${label(h)} <span>· ${h.n} left</span></li>`).join('')
     : '<li><span>No offers yet</span></li>';
 }
 
@@ -183,5 +189,5 @@ document.addEventListener('pointerdown', () => navigator.wakeLock?.request('scre
 
 renderHistory();
 const last = history[history.length - 1];
-last ? show('Last offer', fmt(last.offer)) : show('Boxes left', left().length);
+last ? showOffer(last) : show('Boxes left', left().length);
 </script>
