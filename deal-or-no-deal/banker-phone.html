@@ -84,7 +84,7 @@ body {
   </div>
 </div>
 <section class="offers"><h2>Banker's offers</h2><ol id="history"><li><span>No offers yet</span></li></ol></section>
-<p class="help">Tap each amount as its box is opened. Press ✓ to call the Banker. With 2 boxes left the Banker also offers a swap: you can take the money, swap your box for the last unopened one, or play on. Press ✗ twice to start a new game.</p>
+<p class="help">Tap each amount as its box is opened. Press ✓ to call the Banker, who reads the offer out loud. With 2 boxes left the Banker also offers a swap: you can take the money, swap your box for the last unopened one, or play on. Press ✗ twice to start a new game.</p>
 
 <script>
 // Amounts in pence, laid out exactly like the phone's keypad
@@ -149,14 +149,14 @@ function callBanker() {
   if (rem.length < 2) return show('No more offers', 'Open box!');
   const sig = [...opened].sort((a, b) => a - b).join();
   const last = history[history.length - 1];
-  if (last && last.sig === sig) return showOffer(last);
+  if (last && last.sig === sig) { say(last); return showOffer(last); }
   busy = true; $('phone').classList.add('ringing'); show('Banker calling…', '☎ ☎ ☎'); ring();
   setTimeout(() => {
     const swap = rem.length === 2 && Math.random() < SWAP_CHANCE;
     const h = { sig, n: rem.length, offer: bankerOffer(rem), swap };
     history.push(h); save(); renderHistory();
     $('phone').classList.remove('ringing'); busy = false;
-    pickup(); showOffer(h);
+    pickup(); showOffer(h); setTimeout(() => say(h), 300);
   }, 3200);
 }
 
@@ -176,11 +176,10 @@ function renderHistory() {
 }
 
 let ac;
+const ctx = () => { ac = ac || new (window.AudioContext || window.webkitAudioContext)(); ac.resume(); return ac; };
 function tone(freqs, segments, gain) { // segments: [[on, off], ...] in seconds from now
   try {
-    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
-    ac.resume();
-    const t = ac.currentTime, g = ac.createGain(), end = segments[segments.length - 1][1];
+    const ac = ctx(), t = ac.currentTime, g = ac.createGain(), end = segments[segments.length - 1][1];
     g.gain.setValueAtTime(0, t);
     segments.forEach(([a, b]) => { g.gain.setValueAtTime(gain, t + a); g.gain.setValueAtTime(0, t + b); });
     g.connect(ac.destination);
@@ -188,11 +187,42 @@ function tone(freqs, segments, gain) { // segments: [[on, off], ...] in seconds 
   } catch {}
 }
 const beep = () => tone([697, 1209], [[0, .09]], .12);                         // keypad tone
-const ring = () => tone([400, 450], [[0, .4], [.6, 1], [2, 2.4], [2.6, 3]], .25); // UK double ring, twice
+function ring() { // old bell phone: hammer hits a bell 25 times a second, "tring-tring" twice
+  try {
+    const ac = ctx(), t = ac.currentTime, g = ac.createGain();
+    g.gain.setValueAtTime(0, t);
+    for (const [a, b] of [[0, .4], [.6, 1], [2, 2.4], [2.6, 3]])
+      for (let s = t + a; s < t + b; s += .04) { g.gain.setValueAtTime(.18, s); g.gain.exponentialRampToValueAtTime(.001, s + .035); }
+    g.connect(ac.destination);
+    [1000, 1480, 2760].forEach(f => { const o = ac.createOscillator(); o.type = 'triangle'; o.frequency.value = f; o.connect(g); o.start(t); o.stop(t + 3.05); });
+  } catch {}
+}
+
+const LINES = [
+  a => `The Banker has made you an offer. ${a}. Deal, or no deal?`,
+  a => `The Banker has been watching very closely, and is offering you ${a}. Deal, or no deal?`,
+  a => `Right. The Banker says ${a}, and not a penny more. Deal, or no deal?`,
+];
+function say(h) { // the Banker's voice, via the browser's built-in speech
+  if (h.offer == null) return;
+  try {
+    const a = h.offer < 100 ? h.offer + ' pence' : (h.offer / 100).toLocaleString('en-GB') + ' pounds';
+    const u = new SpeechSynthesisUtterance(h.swap
+      ? `The Banker is offering you ${a}, or you can swap your box. Deal, swap, or no deal?`
+      : LINES[Math.floor(Math.random() * LINES.length)](a));
+    u.lang = 'en-GB'; u.rate = .95; u.pitch = .8;
+    u.voice = speechSynthesis.getVoices().find(v => v.lang === 'en-GB') || null;
+    speechSynthesis.cancel(); speechSynthesis.speak(u);
+  } catch {}
+}
 const pickup = () => tone([160, 90], [[0, .06]], .35);                       // handset lifted
 
 // Keep the screen awake during the game where the browser allows it
-document.addEventListener('pointerdown', () => navigator.wakeLock?.request('screen').catch(() => {}), { once: true });
+// and unlock speech on iPhone, which only allows it after a tap
+document.addEventListener('pointerdown', () => {
+  navigator.wakeLock?.request('screen').catch(() => {});
+  try { speechSynthesis.speak(new SpeechSynthesisUtterance('')); } catch {}
+}, { once: true });
 
 renderHistory();
 const last = history[history.length - 1];
