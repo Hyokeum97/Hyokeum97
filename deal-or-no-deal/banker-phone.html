@@ -84,7 +84,7 @@ body {
   </div>
 </div>
 <section class="offers"><h2>Banker's offers</h2><ol id="history"><li><span>No offers yet</span></li></ol></section>
-<p class="help">Tap each amount as its box is opened. Press ✓ to call the Banker. Sometimes the Banker offers a swap instead of money: say Deal to swap your box for any unopened one. Press ✗ twice to start a new game.</p>
+<p class="help">Tap each amount as its box is opened. Press ✓ to call the Banker. With 2 boxes left the Banker also offers a swap: you can take the money, swap your box for the last unopened one, or play on. Press ✗ twice to start a new game.</p>
 
 <script>
 // Amounts in pence, laid out exactly like the phone's keypad
@@ -96,8 +96,8 @@ const TOTAL = 22;
 // ponytail: calibration knobs. START = share of the average offered after 5 boxes, END = with 2 boxes left.
 // Raise END for a generous banker; JITTER 0 makes the offer purely formula-based.
 const START = 0.15, END = 0.9, JITTER = 0.08;
-// Chance that a call is a swap offer instead of money (max once per game, 3–17 boxes left)
-const SWAP_CHANCE = 0.2;
+// Chance the Banker adds a swap offer when 2 boxes are left (1 = always, 0 = never)
+const SWAP_CHANCE = 1;
 function bankerOffer(remaining, rand = Math.random) {
   const n = remaining.length;
   if (n < 2) return null;
@@ -109,8 +109,8 @@ function bankerOffer(remaining, rand = Math.random) {
   return Math.max(1, Math.round(x / step) * step);
 }
 const fmt = p => p < 100 ? p + 'p' : '£' + (p / 100).toLocaleString('en-GB');
-const label = h => h.swap ? 'Swap' : fmt(h.offer);
-const showOffer = h => show(h.swap ? 'Swap your box?' : 'Banker offers', label(h));
+const label = h => h.offer == null ? 'Swap' : fmt(h.offer) + (h.swap ? ' or swap' : '');
+const showOffer = h => show(h.swap ? 'Offer or swap box?' : 'Banker offers', h.offer == null ? 'Swap' : fmt(h.offer));
 
 let opened = new Set(), history = [], resetArmed = 0, busy = false;
 try { const s = JSON.parse(localStorage.getItem('dond-phone')); opened = new Set(s.opened); history = s.history || []; } catch {}
@@ -134,6 +134,7 @@ for (const k of KEYS) {
 
 function toggle([label, v], b) {
   if (busy) return;
+  beep();
   opened.has(v) ? opened.delete(v) : opened.add(v);
   b.setAttribute('aria-pressed', opened.has(v));
   show(label + (opened.has(v) ? ' opened' : ' back in'), left().length + ' left');
@@ -142,6 +143,7 @@ function toggle([label, v], b) {
 
 function callBanker() {
   if (busy) return;
+  beep();
   const rem = left();
   if (rem.length === TOTAL) return show('Open a box first', '22 left');
   if (rem.length < 2) return show('No more offers', 'Open box!');
@@ -150,16 +152,17 @@ function callBanker() {
   if (last && last.sig === sig) return showOffer(last);
   busy = true; $('phone').classList.add('ringing'); show('Banker calling…', '☎ ☎ ☎'); ring();
   setTimeout(() => {
-    const swap = rem.length >= 3 && rem.length <= 17 && !history.some(h => h.swap) && Math.random() < SWAP_CHANCE;
-    const h = swap ? { sig, n: rem.length, swap } : { sig, n: rem.length, offer: bankerOffer(rem) };
+    const swap = rem.length === 2 && Math.random() < SWAP_CHANCE;
+    const h = { sig, n: rem.length, offer: bankerOffer(rem), swap };
     history.push(h); save(); renderHistory();
     $('phone').classList.remove('ringing'); busy = false;
-    showOffer(h);
-  }, 1500);
+    pickup(); showOffer(h);
+  }, 3200);
 }
 
 function reset() {
   if (busy) return;
+  beep();
   if (Date.now() - resetArmed > 3000) { resetArmed = Date.now(); return show('Press ✕ again', 'New game?'); }
   opened.clear(); history = []; resetArmed = 0; save(); renderHistory();
   keysEl.querySelectorAll('[data-v]').forEach(b => b.setAttribute('aria-pressed', false));
@@ -173,16 +176,20 @@ function renderHistory() {
 }
 
 let ac;
-function ring() { // UK double ring: 400+450 Hz, 0.4s on, 0.2s off, 0.4s on
+function tone(freqs, segments, gain) { // segments: [[on, off], ...] in seconds from now
   try {
     ac = ac || new (window.AudioContext || window.webkitAudioContext)();
-    const t = ac.currentTime, g = ac.createGain();
+    ac.resume();
+    const t = ac.currentTime, g = ac.createGain(), end = segments[segments.length - 1][1];
     g.gain.setValueAtTime(0, t);
-    [[0, .4], [.6, 1]].forEach(([a, b]) => { g.gain.setValueAtTime(.12, t + a); g.gain.setValueAtTime(0, t + b); });
+    segments.forEach(([a, b]) => { g.gain.setValueAtTime(gain, t + a); g.gain.setValueAtTime(0, t + b); });
     g.connect(ac.destination);
-    [400, 450].forEach(f => { const o = ac.createOscillator(); o.frequency.value = f; o.connect(g); o.start(t); o.stop(t + 1.1); });
+    freqs.forEach(f => { const o = ac.createOscillator(); o.frequency.value = f; o.connect(g); o.start(t); o.stop(t + end); });
   } catch {}
 }
+const beep = () => tone([697, 1209], [[0, .09]], .12);                         // keypad tone
+const ring = () => tone([400, 450], [[0, .4], [.6, 1], [2, 2.4], [2.6, 3]], .25); // UK double ring, twice
+const pickup = () => tone([160, 90], [[0, .06]], .35);                       // handset lifted
 
 // Keep the screen awake during the game where the browser allows it
 document.addEventListener('pointerdown', () => navigator.wakeLock?.request('screen').catch(() => {}), { once: true });
