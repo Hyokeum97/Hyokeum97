@@ -1,0 +1,187 @@
+<title>Banker's Phone</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@600;700&family=VT323&display=swap">
+<style>
+/* Layout: red game board, one black phone centred — LCD on top, 4×6 keypad in the same order as the real phone */
+:root {
+  --board: #a3121c; --board-deep: #5e0910;
+  --lcd: #b7c0a0; --lcd-ink: #1d2716;
+  --blue: #2a5fc4; --red: #d42a2a; --green: #4c9846;
+  --gold: #f0c04f; --ink: #ffffff;
+  --f-key: "Barlow Condensed", "Arial Narrow", sans-serif;
+  --f-lcd: "VT323", ui-monospace, monospace;
+  color-scheme: dark;
+}
+html, body { min-height: 100%; }
+body {
+  box-sizing: border-box;
+  background: radial-gradient(circle at 50% 15%, var(--board), var(--board-deep) 75%) fixed;
+  background-color: var(--board-deep);
+  color: var(--ink);
+  font-family: var(--f-key);
+  padding-left: max(16px, env(safe-area-inset-left, 0px));
+  padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 20px 28px;
+  display: flex; flex-direction: column; align-items: center; gap: 18px;
+}
+.phone { width: 100%; max-width: 400px; display: grid; gap: 10px; }
+.handset {
+  height: 54px; border-radius: 30px 30px 12px 12px;
+  background: linear-gradient(#323232, #0a0a0a);
+  box-shadow: 0 6px 14px rgba(0,0,0,.5), inset 0 2px 0 rgba(255,255,255,.12);
+  position: relative;
+}
+.handset::after { /* earpiece grille */
+  content: ""; position: absolute; right: 22px; top: 12px; width: 44px; height: 30px;
+  background: radial-gradient(circle, #000 1.6px, transparent 2px) 0 0 / 7px 7px;
+}
+.base {
+  background: linear-gradient(#1e1e1e, #090909);
+  border-radius: 16px 16px 30px 30px; padding: 18px;
+  display: grid; gap: 16px;
+  box-shadow: 0 14px 30px rgba(0,0,0,.55), inset 0 1px 0 rgba(255,255,255,.08);
+}
+.lcd {
+  background: var(--lcd); color: var(--lcd-ink); font-family: var(--f-lcd);
+  border-radius: 6px; padding: 8px 14px; min-height: 100px;
+  box-shadow: inset 0 3px 8px rgba(0,0,0,.45);
+  display: grid; align-content: center; gap: 2px; text-transform: uppercase;
+}
+.lcd .small { font-size: 22px; letter-spacing: .05em; }
+.lcd .big { font-size: 54px; line-height: .95; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
+.keys { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+.key {
+  font: 700 clamp(17px, 5vw, 22px)/1 var(--f-key); color: var(--ink);
+  border: 0; border-radius: 5px; padding: 15px 0; cursor: pointer;
+  touch-action: manipulation; -webkit-tap-highlight-color: transparent;
+  box-shadow: 0 4px 0 rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.28);
+  transition: opacity .15s;
+}
+.key:active { transform: translateY(3px); box-shadow: 0 1px 0 rgba(0,0,0,.6); }
+.key:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
+.blue { background: var(--blue); }
+.red { background: var(--red); }
+.ok { background: var(--green); }
+.key[aria-pressed="true"] { opacity: .25; text-decoration: line-through; transform: translateY(3px); box-shadow: none; }
+.ringing .handset { animation: shake .1s linear infinite; }
+@keyframes shake { 50% { transform: translate(2px, -2px) rotate(.6deg); } }
+@media (prefers-reduced-motion: reduce) { .ringing .handset { animation: none; } }
+
+.offers { width: 100%; max-width: 400px; display: grid; gap: 8px; }
+.offers h2 { margin: 0; font-size: 15px; letter-spacing: .12em; text-transform: uppercase; color: var(--gold); }
+.offers ol { margin: 0; padding: 0; list-style: none; display: flex; flex-wrap: wrap; gap: 6px; }
+.offers li { background: rgba(0,0,0,.35); border: 1px solid rgba(240,192,79,.4); border-radius: 4px; padding: 4px 9px; font-size: 17px; font-variant-numeric: tabular-nums; }
+.offers li span { opacity: .65; font-size: 14px; }
+.help { max-width: 400px; margin: 0; font: 600 16px/1.4 var(--f-key); opacity: .85; }
+</style>
+
+<div class="phone" id="phone">
+  <div class="handset"></div>
+  <div class="base">
+    <div class="lcd" aria-live="polite"><div class="small" id="lcdSmall"></div><div class="big" id="lcdBig"></div></div>
+    <div class="keys" id="keys"></div>
+  </div>
+</div>
+<section class="offers"><h2>Banker's offers</h2><ol id="history"><li><span>No offers yet</span></li></ol></section>
+<p class="help">Tap each amount as its box is opened. Press ✓ to call the Banker. Press ✗ twice to start a new game.</p>
+
+<script>
+// Amounts in pence, laid out exactly like the phone's keypad
+const KEYS = [['1p',1],['10p',10],['£1k',1e5],['£3k',3e5],['50p',50],['£1',100],['£5k',5e5],['£10k',1e6],
+  ['£5',500],['£10',1e3],['£15k',15e5],['£20k',2e6],['£50',5e3],['£100',1e4],['£35k',35e5],['£50k',5e6],
+  ['£250',25e3],['£500',5e4],['£75k',75e5],['£100k',1e7],['£750',75e3],'ok','x',['£250k',25e6]];
+const TOTAL = 22;
+
+// ponytail: calibration knobs. START = share of the average offered after 5 boxes, END = with 2 boxes left.
+// Raise END for a generous banker; JITTER 0 makes the offer purely formula-based.
+const START = 0.15, END = 0.9, JITTER = 0.08;
+function bankerOffer(remaining, rand = Math.random) {
+  const n = remaining.length;
+  if (n < 2) return null;
+  const avg = remaining.reduce((a, b) => a + b, 0) / n;
+  const p = Math.min(1, Math.max(0, (TOTAL - n - 5) / 15)); // 5 opened → 0, 20 opened → 1
+  const f = (START + (END - START) * p) * (1 + (rand() * 2 - 1) * JITTER);
+  const x = avg * f;
+  const step = x < 100 ? 1 : x < 1e4 ? 100 : x < 1e5 ? 500 : x < 1e6 ? 5000 : x < 1e7 ? 25000 : 1e5;
+  return Math.max(1, Math.round(x / step) * step);
+}
+const fmt = p => p < 100 ? p + 'p' : '£' + (p / 100).toLocaleString('en-GB');
+
+let opened = new Set(), history = [], resetArmed = 0, busy = false;
+try { const s = JSON.parse(localStorage.getItem('dond-phone')); opened = new Set(s.opened); history = s.history || []; } catch {}
+const save = () => { try { localStorage.setItem('dond-phone', JSON.stringify({ opened: [...opened], history })); } catch {} };
+const left = () => KEYS.filter(k => Array.isArray(k) && !opened.has(k[1])).map(k => k[1]);
+const $ = id => document.getElementById(id);
+const show = (small, big) => { $('lcdSmall').textContent = small; $('lcdBig').textContent = big; };
+
+const keysEl = $('keys');
+for (const k of KEYS) {
+  const b = document.createElement('button');
+  b.className = 'key ' + (k === 'ok' ? 'ok' : k === 'x' ? 'red' : k[1] < 1e5 ? 'blue' : 'red');
+  if (k === 'ok') { b.textContent = '✓'; b.setAttribute('aria-label', 'Call the Banker'); b.onclick = callBanker; }
+  else if (k === 'x') { b.textContent = '✕'; b.setAttribute('aria-label', 'New game'); b.onclick = reset; }
+  else {
+    b.textContent = k[0]; b.dataset.v = k[1]; b.setAttribute('aria-pressed', opened.has(k[1]));
+    b.onclick = () => toggle(k, b);
+  }
+  keysEl.append(b);
+}
+
+function toggle([label, v], b) {
+  if (busy) return;
+  opened.has(v) ? opened.delete(v) : opened.add(v);
+  b.setAttribute('aria-pressed', opened.has(v));
+  show(label + (opened.has(v) ? ' opened' : ' back in'), left().length + ' left');
+  save();
+}
+
+function callBanker() {
+  if (busy) return;
+  const rem = left();
+  if (rem.length === TOTAL) return show('Open a box first', '22 left');
+  if (rem.length < 2) return show('No more offers', 'Open box!');
+  const sig = [...opened].sort((a, b) => a - b).join();
+  const last = history[history.length - 1];
+  if (last && last.sig === sig) return show('Banker offers', fmt(last.offer));
+  busy = true; $('phone').classList.add('ringing'); show('Banker calling…', '☎ ☎ ☎'); ring();
+  setTimeout(() => {
+    const offer = bankerOffer(rem);
+    history.push({ sig, n: rem.length, offer }); save(); renderHistory();
+    $('phone').classList.remove('ringing'); busy = false;
+    show('Banker offers', fmt(offer));
+  }, 1500);
+}
+
+function reset() {
+  if (busy) return;
+  if (Date.now() - resetArmed > 3000) { resetArmed = Date.now(); return show('Press ✕ again', 'New game?'); }
+  opened.clear(); history = []; resetArmed = 0; save(); renderHistory();
+  keysEl.querySelectorAll('[data-v]').forEach(b => b.setAttribute('aria-pressed', false));
+  show('Boxes left', '22');
+}
+
+function renderHistory() {
+  $('history').innerHTML = history.length
+    ? history.map(h => `<li>${fmt(h.offer)} <span>· ${h.n} left</span></li>`).join('')
+    : '<li><span>No offers yet</span></li>';
+}
+
+let ac;
+function ring() { // UK double ring: 400+450 Hz, 0.4s on, 0.2s off, 0.4s on
+  try {
+    ac = ac || new (window.AudioContext || window.webkitAudioContext)();
+    const t = ac.currentTime, g = ac.createGain();
+    g.gain.setValueAtTime(0, t);
+    [[0, .4], [.6, 1]].forEach(([a, b]) => { g.gain.setValueAtTime(.12, t + a); g.gain.setValueAtTime(0, t + b); });
+    g.connect(ac.destination);
+    [400, 450].forEach(f => { const o = ac.createOscillator(); o.frequency.value = f; o.connect(g); o.start(t); o.stop(t + 1.1); });
+  } catch {}
+}
+
+// Keep the screen awake during the game where the browser allows it
+document.addEventListener('pointerdown', () => navigator.wakeLock?.request('screen').catch(() => {}), { once: true });
+
+renderHistory();
+const last = history[history.length - 1];
+last ? show('Last offer', fmt(last.offer)) : show('Boxes left', left().length);
+</script>
